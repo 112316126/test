@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FHIR Patient 調閱</title>
+  <style>
+    body { font-family: Arial, "Microsoft JhengHei", sans-serif; background:#f5f7fb; margin:0; color:#1f2937; }
+    .wrap { max-width: 900px; margin: 40px auto; padding: 0 20px 50px; }
+    .card { background:white; border-radius:14px; padding:24px; box-shadow:0 8px 24px rgba(0,0,0,.08); margin-bottom:20px; }
+    h1 { margin-top:0; }
+    label { display:block; font-weight:bold; margin:14px 0 6px; }
+    input, textarea { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; }
+    textarea { min-height:240px; font-family:Consolas, monospace; }
+    button { margin:14px 8px 0 0; padding:10px 18px; border:0; border-radius:8px; cursor:pointer; font-size:16px; }
+    .primary { background:#2563eb; color:white; }
+    .success { background:#059669; color:white; }
+    .urlbox { white-space:pre-wrap; word-break:break-all; background:#eff6ff; padding:12px; border-radius:8px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:10px; border-bottom:1px solid #e5e7eb; text-align:left; vertical-align:top; }
+    th { width:180px; background:#f8fafc; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>調閱 FHIR Patient</h1>
+    <p>輸入 Patient ID，先產生 GET URL，再向 FHIR Server 取得該 Patient。</p>
+
+    <label for="server">FHIR Server URL</label>
+    <input id="server" value="https://hapi.fhir.org/baseR4">
+
+    <label for="patientId">FHIR Patient ID</label>
+    <input id="patientId" placeholder="例如：123456">
+
+    <button class="primary" onclick="generateUrl()">Button 1：產生調閱 URL</button>
+    <button class="success" onclick="retrievePatient()">Button 2：GET Patient</button>
+  </div>
+
+  <div class="card">
+    <h2>調閱 URL</h2>
+    <div id="urlOutput" class="urlbox">尚未產生。</div>
+  </div>
+
+  <div class="card">
+    <h2>Patient 資料</h2>
+    <div id="patientDisplay">尚未調閱。</div>
+  </div>
+
+  <div class="card">
+    <h2>原始 FHIR JSON</h2>
+    <textarea id="rawJson" readonly></textarea>
+  </div>
+</div>
+
+<script>
+function normalizeServer(url) {
+  return url.trim().replace(/\/+$/, "");
+}
+
+function getUrl() {
+  const server = normalizeServer(document.getElementById("server").value);
+  const id = document.getElementById("patientId").value.trim();
+
+  if (!server || !id) return null;
+  return server + "/Patient/" + encodeURIComponent(id);
+}
+
+function generateUrl() {
+  const url = getUrl();
+  if (!url) {
+    alert("請輸入 FHIR Server URL 與 Patient ID。");
+    return;
+  }
+  document.getElementById("urlOutput").textContent = url;
+}
+
+async function retrievePatient() {
+  const url = getUrl();
+  if (!url) {
+    alert("請輸入 FHIR Server URL 與 Patient ID。");
+    return;
+  }
+
+  document.getElementById("urlOutput").textContent = url;
+  document.getElementById("patientDisplay").textContent = "調閱中...";
+  document.getElementById("rawJson").value = "";
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Accept": "application/fhir+json" }
+    });
+
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      document.getElementById("patientDisplay").innerHTML =
+        "<b>調閱失敗</b><br>HTTP " + response.status + " " + response.statusText;
+      document.getElementById("rawJson").value = data ? JSON.stringify(data, null, 2) : text;
+      return;
+    }
+
+    const name =
+      data?.name?.[0]?.text ||
+      [data?.name?.[0]?.family, ...(data?.name?.[0]?.given || [])].filter(Boolean).join(" ") ||
+      "(未提供)";
+    const gender = data?.gender || "(未提供)";
+    const birthDate = data?.birthDate || "(未提供)";
+    const active = (data?.active === undefined) ? "(未提供)" : String(data.active);
+
+    document.getElementById("patientDisplay").innerHTML = `
+      <table>
+        <tr><th>resourceType</th><td>${escapeHtml(data.resourceType || "")}</td></tr>
+        <tr><th>Patient ID</th><td>${escapeHtml(data.id || "")}</td></tr>
+        <tr><th>姓名／暱稱</th><td>${escapeHtml(name)}</td></tr>
+        <tr><th>性別</th><td>${escapeHtml(gender)}</td></tr>
+        <tr><th>出生日期</th><td>${escapeHtml(birthDate)}</td></tr>
+        <tr><th>active</th><td>${escapeHtml(active)}</td></tr>
+      </table>
+    `;
+
+    document.getElementById("rawJson").value = JSON.stringify(data, null, 2);
+  } catch (error) {
+    document.getElementById("patientDisplay").innerHTML =
+      "<b>連線失敗：</b> " + escapeHtml(error.message);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+</script>
+</body>
+</html>
